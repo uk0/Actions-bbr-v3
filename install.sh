@@ -42,8 +42,8 @@ clean_sysctl_conf() {
 load_qdisc_module() {
     local qdisc_name="$1"
     
-    # fq 是内核内置的，不需要加载模块
-    if [[ "$qdisc_name" == "fq" ]]; then
+    # fq 和 fq_codel 是内核内置的，不需要加载模块
+    if [[ "$qdisc_name" == "fq" || "$qdisc_name" == "fq_codel" ]]; then
         return 0
     fi
     
@@ -99,9 +99,9 @@ ask_to_save() {
         echo "net.ipv4.tcp_congestion_control=$ALGO" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         sudo sysctl --system > /dev/null 2>&1
         
-        # 配置模块开机自动加载（fq 是内置的不需要）
-        if [[ "$QDISC" == "fq" ]]; then
-            # fq 是内核内置的，删除旧的模块配置文件
+        # 配置模块开机自动加载（fq 和 fq_codel 是内置的不需要）
+        if [[ "$QDISC" == "fq" || "$QDISC" == "fq_codel" ]]; then
+            # fq 和 fq_codel 是内核内置的，删除旧的模块配置文件
             sudo rm -f "$MODULES_CONF"
             echo -e "\033[1;32m(☆^ー^☆) 更改已永久保存啦~\033[0m"
         else
