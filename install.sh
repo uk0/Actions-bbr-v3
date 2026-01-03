@@ -41,6 +41,12 @@ clean_sysctl_conf() {
 # 函数：加载队列调度模块
 load_qdisc_module() {
     local qdisc_name="$1"
+    
+    # fq 是内核内置的，不需要加载模块
+    if [[ "$qdisc_name" == "fq" ]]; then
+        return 0
+    fi
+    
     local module_name="sch_$qdisc_name"
     
     # 检查模块是否已加载
@@ -93,9 +99,15 @@ ask_to_save() {
         echo "net.ipv4.tcp_congestion_control=$ALGO" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         sudo sysctl --system > /dev/null 2>&1
         
-        # 配置模块开机自动加载（覆盖旧配置，确保只加载当前需要的模块）
-        echo "sch_$QDISC" | sudo tee "$MODULES_CONF" > /dev/null
-        echo -e "\033[1;32m(☆^ー^☆) 更改已永久保存，模块 sch_$QDISC 将在开机时自动加载~\033[0m"
+        # 配置模块开机自动加载（fq 是内置的不需要）
+        if [[ "$QDISC" == "fq" ]]; then
+            # fq 是内核内置的，删除旧的模块配置文件
+            sudo rm -f "$MODULES_CONF"
+            echo -e "\033[1;32m(☆^ー^☆) 更改已永久保存啦~\033[0m"
+        else
+            echo "sch_$QDISC" | sudo tee "$MODULES_CONF" > /dev/null
+            echo -e "\033[1;32m(☆^ー^☆) 更改已永久保存，模块 sch_$QDISC 将在开机时自动加载~\033[0m"
+        fi
     else
         echo -e "\033[33m(⌒_⌒;) 好吧，没有永久保存，重启后会恢复原设置呢~\033[0m"
     fi
@@ -275,11 +287,12 @@ echo -e "\033[33m 1. 🚀 安装或更新 BBR v3 (最新版)\033[0m"
 echo -e "\033[33m 2. 📚 指定版本安装\033[0m"
 echo -e "\033[33m 3. 🔍 检查 BBR v3 状态\033[0m"
 echo -e "\033[33m 4. ⚡ 启用 BBR + FQ\033[0m"
-echo -e "\033[33m 5. ⚡ 启用 BBR + FQ_PIE\033[0m"
-echo -e "\033[33m 6. ⚡ 启用 BBR + CAKE\033[0m"
-echo -e "\033[33m 7. 🗑️  卸载 BBR 内核\033[0m"
+echo -e "\033[33m 5. ⚡ 启用 BBR + FQ_CODEL\033[0m"
+echo -e "\033[33m 6. ⚡ 启用 BBR + FQ_PIE\033[0m"
+echo -e "\033[33m 7. ⚡ 启用 BBR + CAKE\033[0m"
+echo -e "\033[33m 8. 🗑️  卸载 BBR 内核\033[0m"
 print_separator
-echo -n -e "\033[36m请选择一个操作 (1-7) (｡･ω･｡): \033[0m"
+echo -n -e "\033[36m请选择一个操作 (1-8) (｡･ω･｡): \033[0m"
 read -r ACTION
 
 case "$ACTION" in
@@ -293,8 +306,12 @@ case "$ACTION" in
         ;;
     3)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
-        depmod -a
         BBR_MODULE_INFO=$(modinfo tcp_bbr 2>/dev/null)
+        if [[ -z "$BBR_MODULE_INFO" ]]; then
+            echo -e "\033[36m正在刷新模块依赖...\033[0m"
+            depmod -a
+            BBR_MODULE_INFO=$(modinfo tcp_bbr 2>/dev/null)
+        fi
         if [[ -z "$BBR_MODULE_INFO" ]]; then
             echo -e "\033[31m(⊙﹏⊙) 未加载 tcp_bbr 模块，无法检查版本。请先安装内核并重启。\033[0m"
             exit 1
@@ -316,7 +333,7 @@ case "$ACTION" in
         if [[ "$BBR_VERSION" == "3" && "$CURRENT_ALGO" == "bbr" ]]; then
             echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ 检测完成，BBR v3 已正确安装并生效！\033[0m"
         else
-            echo -e "\033[33mBBR v3 未完全生效。请确保已安装内核并重启，然后使用选项 4/5/6 启用。\033[0m"
+            echo -e "\033[33mBBR v3 未完全生效。请确保已安装内核并重启，然后使用选项 4-7 启用。\033[0m"
         fi
         ;;
     4)
@@ -326,18 +343,24 @@ case "$ACTION" in
         ask_to_save
         ;;
     5)
+        echo -e "\033[1;32m(๑•̀ㅂ•́)و✧ 使用 BBR + FQ_CODEL 加速！\033[0m"
+        ALGO="bbr"
+        QDISC="fq_codel"
+        ask_to_save
+        ;;
+    6)
         echo -e "\033[1;32m٩(•‿•)۶ 使用 BBR + FQ_PIE 加速！\033[0m"
         ALGO="bbr"
         QDISC="fq_pie"
         ask_to_save
         ;;
-    6)
+    7)
         echo -e "\033[1;32m(ﾉ≧∀≦)ﾉ 使用 BBR + CAKE 加速！\033[0m"
         ALGO="bbr"
         QDISC="cake"
         ask_to_save
         ;;
-    7)
+    8)
         echo -e "\033[1;32mヽ(・∀・)ノ 您选择了卸载 BBR 内核！\033[0m"
         PACKAGES_TO_REMOVE=$(dpkg -l | grep "joeyblog" | awk '{print $2}' | tr '\n' ' ')
         if [[ -n "$PACKAGES_TO_REMOVE" ]]; then
@@ -350,6 +373,6 @@ case "$ACTION" in
         fi
         ;;
     *)
-        echo -e "\033[31m(￣▽￣)ゞ 无效的选项，请输入 1-7 之间的数字哦~\033[0m"
+        echo -e "\033[31m(￣▽￣)ゞ 无效的选项，请输入 1-8 之间的数字哦~\033[0m"
         ;;
 esac
